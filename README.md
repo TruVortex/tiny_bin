@@ -91,7 +91,7 @@ let test_basic () =
 ---
 
 ### Example 2: Isomorphic Mapping (`map` for Records)
-Usually, tuples are tedious to work with inside an application. We can use the `map` combinator to bind our schema to a clean, user-defined record type.
+Usually, tuples are tedious to work with inside an application. One can use the `map` combinator to bind our schema to a clean, user-defined record type.
 
 ```ocaml
 open Tiny_bin
@@ -129,7 +129,7 @@ let test_record () =
 ---
 
 ### Example 3: Handling Options (`maybe`)
-Optional variables (like `string option`) are serialized using a tag byte `0` for `None` and `1` for `Some`. We composed `maybe` inside our library using the algebraic elements `Just` (binary sum) and `Nothing` (empty unit representation).
+Optional variables (like `string option`) are serialized using a tag byte `0` for `None` and `1` for `Some`. There exists `maybe` inside the library using the algebraic elements `Just` (binary sum) and `Nothing` (empty unit representation).
 
 ```ocaml
 open Tiny_bin
