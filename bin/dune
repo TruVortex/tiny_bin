@@ -1,0 +1,8 @@
+(executable
+ (name main)
+ (public_name tiny_bin)
+ (libraries tiny_bin))
+
+(executable
+ (name bench)
+ (libraries tiny_bin unix))

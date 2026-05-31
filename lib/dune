@@ -1,0 +1,3 @@
+(library
+ (name tiny_bin)
+ (libraries bigstringaf))
