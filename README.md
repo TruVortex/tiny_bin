@@ -1,29 +1,67 @@
-# A High-Performance, GADT-Based Binary Serialization Library
+# tiny_bin
 
-`tiny_bin` is a type-safe binary serialization and deserialization library written in OCaml. It uses Generalized Algebraic Data Types (GADTs) to dynamically represent type schemas while maintaining static compiler guarantees. The library is optimized for low-latency systems, featuring LEB128 integer compression (an implementation of Varints) and a mutable cursor pattern to avoid allocation overhead, allowing for zero-copy slicing for large buffers.
+This project explores how Generalized Algebraic Data Types (GADTs) can be used to represent type schemas while preserving static type safety. It also demonstrates a few implementation techniques commonly used in low-allocation parsers, featuring LEB128 integer compression for non-negative integers (an implementation of Varints) and a mutable cursor pattern to avoid allocation overhead, allowing for zero-copy slicing for large buffers.
+
+### Why This Exists
+
+The primary goal of this project is educational; it is an exploration of:
+- GADTs in OCaml
+- typed serialization and deserialization
+- allocation-aware parsing design
+- existential encodings
 
 ---
 
-## Why OCaml?
+## Schema Representation & Maps
 
-### 1. Advanced Type Systems & Existential Types
-Using GADTs, `tiny_bin` retains type witnesses (`'a typ`) at runtime, guaranteeing that deserialized outputs match their schemas without resorting to unsafe pointer casting (`Obj.magic`). 
-The `Map` constructor leverages an existential type variable (`'b`) to decouple the physical layout of raw bytes on the wire from the clean domain-level types exposed to developers:
+Schemas are represented as a GADT:
 ```ocaml
-Map : 'b typ * ('b -> 'a) * ('a -> 'b) -> 'a typ
+type _ typ =
+  | Int : int typ
+  | String : string typ
+  | Slice : slice typ
+  | Pair : 'a typ * 'b typ -> ('a * 'b) typ
+  | Map : 'b typ * ('b -> 'a) * ('a -> 'b) -> 'a typ
+  | Nothing : unit typ
+  | Just : 'a typ * 'b typ -> ('a, 'b) just typ
+```
+Because schemas carry type information at runtime, the compiler can guarantee that values produced by deserialization match the schema used to decode them without resorting to unsafe pointer casting (`Obj.magic`).
+This gives the `Map` constructor the ability to leverage an existential type variable which allows a wire representation to be mapped to a more ergonomic domain type. That is, the intermediate wire type `'a` is hidden from users of the resulting schema,
+allowing serialization to operate on one representation while applications work with another.
+
+```ocaml
+Map : 'a typ * ('a -> 'b) * ('b -> 'a) -> 'b typ
 ```
 
-### 2. Micro-Memory Optimization
-Managed languages often introduce silent allocation overhead. `tiny_bin` utilizes:
-*   **Off-heap memory:** Direct byte manipulation using `Bigstringaf` to interface with system-level I/O.
-*   **Variable-length integer compression:** Custom tail-recursive LEB128 encoders/decoders to compress metadata and integers on the fly.
-*   **Mutable Cursor Pattern:** Standard tuple-returning reader signatures `('a * int)` replaced with in-place cursor updates (`cursor -> 'a`) to eliminate intermediate tuple allocations during sequential deserialization passes.
+## Allocation-Aware Parsing
+Deserialization uses a mutable cursor:
+```ocaml
+type cursor = {
+  mutable off : int;
+}
+```
+rather than returning `(value, next_offset)` pairs.
+This avoids allocating offset tuples during sequential parsing and keeps the decoding path allocation-light.
 
 ---
 
 ## Performance & GC Allocation Benchmark
 
-To evaluate memory efficiency, the `Slice` mechanism (which points directly to sub-segments of a `Bigarray`) was benchmarked against standard `String` decoding (which allocates copies on the OCaml heap) by analyzing allocation and execution timing.
+### Zero-Copy Slices
+
+Strings are decoded by allocating a fresh OCaml string while slices instead return a view into the underlying Bigstringaf buffer:
+
+```ocaml
+type slice = {
+  buf : Bigstringaf.t;
+  off : int;
+  len : int;
+}
+```
+
+This avoids copying payload bytes and can significantly reduce allocation when working with large buffers.
+
+To evaluate memory efficiency, the `Slice` mechanism (which points directly to sub-segments of a `Bigarray`) was benchmarked against standard `String` decoding (which allocates copies on the OCaml heap) by analyzing allocation and execution timing. The benchmarks demonstrate that avoiding string copies reduces allocation and improves throughput in this specific workload.
 
 ### 1. GC Allocation Benchmark Results (10,000 runs)
 ```text
@@ -43,21 +81,12 @@ In a 64-bit OCaml runtime, every block allocated on the minor heap requires a 1-
     $$\text{Size} = 1\text{-word header } (8\text{ bytes}) + 3\text{ fields } (24\text{ bytes}) = 32\text{ bytes}$$
 *(The additional 96 bytes is a fixed compiler constant representing the stack frame overhead of executing the loop and the `Gc` measurement harness).*
 
-### 2. High-Precision Execution Time Benchmark (1,000,000 runs)
+### 2. Execution Time Benchmark (1,000,000 runs)
 ```text
 Micro-Benchmark (1000000 runs)
 String Copying:  0.0475 seconds (47.52 ns/run)
 Slice: 0.0100 seconds (10.00 ns/run)
 ```
--   **Throughput Scale**
-    - String Copying (47.52 ns/run): Decodes 21.0 million payloads per second on a single thread.
-    - Slice (10.00 ns/run): Decodes 100.0 million payloads per second on a single thread.
--   **CPU Cycle Savings**
-    Assuming a standard $3.5\text{ GHz}$ processor ($1\text{ ns}\approx3.5\text{ CPU cycles}$)
-    - String Copying: Takes $\approx166\text{ CPU cycles}$ per run
-    - Slice: Takes $\approx35\text{ CPU cycles}$ per run
-
-Thus, the slice implementation saves roughly $131\text{ CPU cycles}$ per run yielding a $4.75\times$ speedup.
 
 ---
 
@@ -91,7 +120,7 @@ let test_basic () =
 ---
 
 ### Example 2: Isomorphic Mapping (`map` for Records)
-Usually, tuples are tedious to work with inside an application. We can use the `map` combinator to bind our schema to a clean, user-defined record type.
+Usually, tuples are tedious to work with inside an application. One can use the `map` combinator to bind our schema to a clean, user-defined record type.
 
 ```ocaml
 open Tiny_bin
@@ -129,7 +158,7 @@ let test_record () =
 ---
 
 ### Example 3: Handling Options (`maybe`)
-Optional variables (like `string option`) are serialized using a tag byte `0` for `None` and `1` for `Some`. We composed `maybe` inside our library using the algebraic elements `Just` (binary sum) and `Nothing` (empty unit representation).
+Optional variables (like `string option`) are serialized using a tag byte `0` for `None` and `1` for `Some`. There exists `maybe` inside the library using the algebraic elements `Just` (binary sum) and `Nothing` (empty unit representation).
 
 ```ocaml
 open Tiny_bin
