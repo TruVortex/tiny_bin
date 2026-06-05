@@ -11,10 +11,11 @@ type _ typ =
   | Nothing : unit typ
   | Just : 'a typ * 'b typ -> ('a, 'b) just typ
 
+let zigzag_encode n = (n lsl 1) lxor (n asr 62)
+let zigzag_decode n = (n lsr 1) lxor -(n land 1)
+
 let size_varint n =
-  let rec loop acc n =
-    if n < 0 then 10 else if n < 128 then acc + 1 else loop (acc + 1) (n lsr 7)
-  in
+  let rec loop acc n = if n < 128 then acc + 1 else loop (acc + 1) (n lsr 7) in
   loop 0 n
 
 let rec write_varint =
@@ -41,7 +42,7 @@ let read_varint buf off = read_varint_helper buf 0 0 off
 let rec size : type a. a typ -> a -> int =
  fun t value ->
   match t with
-  | Int -> size_varint value
+  | Int -> size_varint (zigzag_encode value)
   | String ->
       let len = String.length value in
       size_varint len + len
@@ -60,7 +61,7 @@ let rec size : type a. a typ -> a -> int =
 let rec write : type a. a typ -> a -> Bigstringaf.t -> int -> int =
  fun t value buf off ->
   match t with
-  | Int -> write_varint buf off value
+  | Int -> write_varint buf off (zigzag_encode value)
   | String ->
       let len = String.length value in
       let off' = write_varint buf off len in
@@ -93,7 +94,7 @@ let rec read : type a. a typ -> Bigstringaf.t -> cursor -> a =
   | Int ->
       let value, off' = read_varint buf cursor.off in
       cursor.off <- off';
-      value
+      zigzag_decode value
   | String ->
       let len, off' = read_varint buf cursor.off in
       let value = Bigstringaf.substring buf ~off:off' ~len in

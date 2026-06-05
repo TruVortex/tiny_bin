@@ -1,6 +1,6 @@
 # tiny_bin
 
-This project explores how Generalized Algebraic Data Types (GADTs) can be used to represent type schemas while preserving static type safety. It also demonstrates a few implementation techniques commonly used in low-allocation parsers, featuring LEB128 integer compression for non-negative integers (an implementation of Varints) and a mutable cursor pattern to avoid allocation overhead, allowing for zero-copy slicing for large buffers.
+This project explores how Generalized Algebraic Data Types (GADTs) can be used to represent type schemas while preserving static type safety. It also demonstrates a few implementation techniques commonly used in low-allocation parsers, featuring LEB128 integer compression (an implementation of Varints) and a mutable cursor pattern to avoid allocation overhead, allowing for zero-copy slicing for large buffers.
 
 ### Why This Exists
 
